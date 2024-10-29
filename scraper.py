@@ -1,8 +1,19 @@
 import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+import shelve
+import os
+
+SAVE_PATH = "stats"
+
+if not os.path.exists(SAVE_PATH+".db"):
+    save = shelve.open(SAVE_PATH)
+    save['links'] = set()
+else:
+    save = shelve.open(SAVE_PATH)
 
 def scraper(url, resp):
+    print(save['links'])
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
@@ -20,7 +31,6 @@ def extract_next_links(url, resp):
     if resp.status == 200:
         soup = BeautifulSoup(resp.raw_response.content,'html.parser')
         links = [link['href'] for link in soup.find_all('a',href=True)]
-        #print(links)
     return links
 
 def is_valid(url):
@@ -31,6 +41,7 @@ def is_valid(url):
         parsed = urlparse(url)
         if parsed.scheme not in set(["http", "https"]):
             return False
+
         valid = not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -40,13 +51,25 @@ def is_valid(url):
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+        if not valid:
+            return False
+
         valid_domain = bool(re.match(r"^(.*\.)?ics\.uci\.edu$"
                 + r"|^(.*\.)?cs\.uci\.edu$"
                 + r"|^(.*\.)?informatics\.uci\.edu$"
                 + r"|^(.*\.)?stat\.uci\.edu$", parsed.netloc) or
                 (re.match(r"^today\.uci\.edu/$", parsed.netloc) and 
                         re.match(r"^department/information_computer_sciences/.*$", parsed.path)))
-        return valid and valid_domain
+        if not valid_domain:
+            return False
+
+        link = (parsed.scheme, parsed.netloc, parsed.path, parsed.params, parsed.query)
+        if link in save['links']:
+            return False
+        save['links'].add(link)
+
+
+        return True
 
     except TypeError:
         print ("TypeError for ", parsed)
