@@ -2,6 +2,7 @@ import re
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from bs4 import BeautifulSoup
 import shelve
+import analyze_links as al
 
 save = shelve.open("unique_links")
 
@@ -49,6 +50,8 @@ def extract_next_links(url, resp):
     links = []
     if resp.status == 200:
         soup = BeautifulSoup(resp.raw_response.content,'html.parser')
+        num_words = al.getWords(soup)
+
         links = [link['href'] for link in soup.find_all('a',href=True)]
     return links
 
