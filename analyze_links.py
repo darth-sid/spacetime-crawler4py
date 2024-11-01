@@ -1,12 +1,12 @@
 from bs4 import BeautifulSoup
 import shelve
-import os
+import os, re
 
-file_exists = os.path.exists("words.db")
+file_exists = os.path.exists("words.shelve")
 
-word_store = shelve.open("words")
+word_store = shelve.open("words.shelve")
 
-if !file_exists:
+if not file_exists:
     word_store['*']=0
 
 

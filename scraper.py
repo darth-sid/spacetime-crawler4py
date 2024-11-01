@@ -5,7 +5,7 @@ import shelve
 import analyze_links as al
 from utils import get_logger, get_urlhash
 
-save = shelve.open("unique_links")
+save = shelve.open("unique_links.shelve")
 logger = get_logger("Crawler", "CRAWLER")
 
 def normalized_hash(parsed_url):
@@ -27,15 +27,18 @@ def normalized_hash(parsed_url):
         path = path[:-9]
 
     query = parse_qs(parsed_url.query)
+    filtered_query = dict(query)
     for param in query:
         if param in ignore:
-            query.pop(param, None)
-    query = urlencode(query, doseq=True)
+            filtered_query.pop(param, None)
+    query = urlencode(filtered_query, doseq=True)
 
     url = urlunparse(('',netloc,path,'',query,''))
     return get_urlhash(url)
 
 def scraper(url, resp):
+    if not is_valid(url):
+        return []
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
@@ -53,7 +56,7 @@ def extract_next_links(url, resp):
     if resp.status == 200:
         soup = BeautifulSoup(resp.raw_response.content,'html.parser')
         if al.getWords(soup) > 0:
-            logger.info(url)
+            logger.info(url) # log urls that arent low information
         links = [link['href'] for link in soup.find_all('a',href=True)]
     return links
 
@@ -114,7 +117,7 @@ def is_valid(url):
             return False
 
         # cache unique urls visited
-        url = f"{parsed.netloc}.{parsed.path}.{parsed.params}.{parsed.query}"
+        url = f"{parsed.netloc}{parsed.path}?{parsed.query}"
         urlhash = normalized_hash(parsed)
         if urlhash in save:
             return False
