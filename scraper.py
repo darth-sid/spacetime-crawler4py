@@ -1,10 +1,12 @@
-import re
+import re, os
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from bs4 import BeautifulSoup
 import shelve
 import analyze_links as al
+from utils import get_logger, get_urlhash
 
 save = shelve.open("unique_links")
+logger = get_logger("Crawler", "CRAWLER")
 
 def normalized_hash(parsed_url):
     # queries to ignore
@@ -31,7 +33,7 @@ def normalized_hash(parsed_url):
     query = urlencode(query, doseq=True)
 
     url = urlunparse(('',netloc,path,'',query,''))
-    return str(hash(url))
+    return get_urlhash(url)
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -50,8 +52,8 @@ def extract_next_links(url, resp):
     links = []
     if resp.status == 200:
         soup = BeautifulSoup(resp.raw_response.content,'html.parser')
-        num_words = al.getWords(soup)
-
+        if al.getWords(soup) > 0:
+            logger.info(url)
         links = [link['href'] for link in soup.find_all('a',href=True)]
     return links
 
@@ -60,7 +62,7 @@ def is_valid(url):
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
     
-    #ignore calendars, login pages, 
+    #ignore calendars traps, login pages, 
     banned_paths = ['login','calendar',] # TODO
 
     try:
@@ -96,13 +98,21 @@ def is_valid(url):
         for path in banned_paths:
             if re.search(path, parsed.path, re.IGNORECASE) is not None:
                 return False
+        
+        paths = path.split('/')
+        counts = {}
+        for p in paths:
+            if p not in counts:
+                counts[p] = 0
+            counts[p] += 1
+            if counts[p] > 2:
+                return False # invalid if any path is repeated more than twice to avoid repetitive path traps
 
-        # check for xxxx-xx-xx in queries (sign of a calendar)
+
+        # check for xxxx-xx-xx in queries to avoid calendar traps
         if re.search(r"\b\d{4}-\d{2}-\d{2}\b", parsed.query) is not None:
             return False
 
-        #TODO: check for repeated directories and filter useless pages and low info pages
-        
         # cache unique urls visited
         url = f"{parsed.netloc}.{parsed.path}.{parsed.params}.{parsed.query}"
         urlhash = normalized_hash(parsed)
