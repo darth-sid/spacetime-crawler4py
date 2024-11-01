@@ -28,10 +28,11 @@ stop_words = {
 }
 
 def getWords(soup, limit = 50):
-    text = soup.get_text()
+    text = soup.get_text(separator=" ", strip=True).lower()
+    english_text = re.sub(r"[^a-z\s]", "", text)
     words = text.split()
 
-    words = [re.sub(r'[^A-Za-z\s]', '', word).lower() for word in words]
+    words = [word.lower() for word in words if (len(word) > 2 and word not in stop_words)]
 
 
     num_words = len(words)

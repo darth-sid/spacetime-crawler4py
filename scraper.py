@@ -12,7 +12,7 @@ def normalized_hash(parsed_url):
     # queries to ignore
     ignore = {'utm_source','utm_medium','utm_campaign','utm_term','utm_content',
               'sessionid','sessid','sid','phpsessid','aspsessionid','jsessionid',
-              'date','month', 'year', 'time','calendar','schedule',
+              'date','time','calendar','schedule',
               'ref','referrer','src','sort','order','orderby','direction','view','display',
               'clid','click_id','aff_id','aid','affilliate_id','aff_sub', 'banner_id', 'campaign_id',
               }
@@ -55,9 +55,14 @@ def extract_next_links(url, resp):
     links = []
     if resp.status == 200:
         soup = BeautifulSoup(resp.raw_response.content,'html.parser')
+        robot_tag = soup.find("meta", attrs={"name": "robots"})
+        if robot_tag:
+            content = robot_tag.get('content')
+            if 'nofollow' in content or 'noindex' in content:
+                return []
         if al.getWords(soup) > 0:
             logger.info(url) # log urls that arent low information
-        links = [link['href'] for link in soup.find_all('a',href=True)]
+        links = [link['href'] for link in soup.find_all('a',href=True) if link['rel'] == "nofollow"]
     return links
 
 def is_valid(url):
@@ -66,7 +71,7 @@ def is_valid(url):
     # There are already some conditions that return False.
     
     #ignore calendars traps, login pages, 
-    banned_paths = ['login','calendar',] # TODO
+    banned_paths = ['calendar'] # TODO
 
     try:
         parsed = urlparse(url)
@@ -114,6 +119,13 @@ def is_valid(url):
 
         # check for xxxx-xx-xx in queries to avoid calendar traps
         if re.search(r"\b\d{4}-\d{2}-\d{2}\b", parsed.query) is not None:
+            return False
+        if re.search(r"\b\d{4}-\d{2}\b", parsed.query) is not None:
+            return False
+        # check for xxxx-xx-xx in queries to avoid calendar traps
+        if re.search(r"\b\d{4}-\d{2}-\d{2}\b", parsed.path) is not None:
+            return False
+        if re.search(r"\b\d{4}-\d{2}\b", parsed.path) is not None:
             return False
 
         # cache unique urls visited
