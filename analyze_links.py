@@ -31,7 +31,7 @@ def getWords(soup, limit = 50):
     text = soup.get_text()
     words = text.split()
 
-    words = [re.sub(r'[^\w\s]', '', word).lower() for word in words]
+    words = [re.sub(r'[^A-Za-z\s]', '', word).lower() for word in words]
 
 
     num_words = len(words)
