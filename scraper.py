@@ -1,4 +1,4 @@
-import re, os
+import re
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from bs4 import BeautifulSoup
 import shelve
@@ -25,6 +25,7 @@ def normalized_hash(parsed_url):
         path = path[:-10]
     elif path.endswith("index.htm"):
         path = path[:-9]
+    path.rstrip('/')
 
     query = parse_qs(parsed_url.query)
     filtered_query = dict(query)
@@ -37,10 +38,8 @@ def normalized_hash(parsed_url):
     return get_urlhash(url)
 
 def scraper(url, resp):
-    if not is_valid(url):
-        return []
     links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    return [link for link in links if (link != url and is_valid(link))]
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -62,7 +61,21 @@ def extract_next_links(url, resp):
                 return []
         if al.getWords(soup) > 0:
             logger.info(url) # log urls that arent low information
-        links = [link['href'] for link in soup.find_all('a',href=True) if link['rel'] == "nofollow"]
+        
+        def ignore(link_elem):
+            link = link_elem['href']
+            fragment = re.match(r"^#",link)
+            js = re.match(r"^javascript:",link)
+            tele = re.match(r"^tel:",link)
+            nofollow = link_elem.has_attr('rel') and 'nofollow' in link_elem['rel']
+            return fragment or nofollow or js or tele
+        
+        for link_elem in soup.find_all('a',href=True):
+            link = link_elem['href']
+            if not ignore(link_elem):
+                if link[0] == '/':
+                    link = url.rstrip('/') + link
+                links.append(link)
     return links
 
 def is_valid(url):
@@ -122,19 +135,17 @@ def is_valid(url):
             return False
         if re.search(r"\b\d{4}-\d{2}\b", parsed.query) is not None:
             return False
-        # check for xxxx-xx-xx in queries to avoid calendar traps
         if re.search(r"\b\d{4}-\d{2}-\d{2}\b", parsed.path) is not None:
             return False
         if re.search(r"\b\d{4}-\d{2}\b", parsed.path) is not None:
             return False
-
+            
         # cache unique urls visited
         url = f"{parsed.netloc}{parsed.path}?{parsed.query}"
         urlhash = normalized_hash(parsed)
         if urlhash in save:
             return False
         save[urlhash] = url
-
         
         return True
 
