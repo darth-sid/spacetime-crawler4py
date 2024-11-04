@@ -32,7 +32,7 @@ def getWords(soup, limit = 50):
     english_text = re.sub(r"[^a-z\s]", "", text)
     words = text.split()
 
-    words = [word.lower() for word in words if len(word) > 2]
+    words = [word for word in words if len(word) > 2]
 
 
     num_words = len(words)

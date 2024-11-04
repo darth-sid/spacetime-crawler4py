@@ -1,5 +1,5 @@
 import re
-from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, urljoin, urldefrag
 from bs4 import BeautifulSoup
 import shelve
 import analyze_links as al
@@ -37,6 +37,18 @@ def normalized_hash(parsed_url):
     url = urlunparse(('',netloc,path,'',query,''))
     return get_urlhash(url)
 
+def is_absolute(url):
+    parsed = urlparse(url)
+    return parsed.scheme and parsed.netloc
+
+def ignore(link_elem):
+    link = link_elem['href']
+    fragment = re.match(r"^#",link)
+    js = re.match(r"^javascript:",link)
+    tele = re.match(r"^tel:",link)
+    nofollow = link_elem.has_attr('rel') and 'nofollow' in link_elem['rel']
+    return fragment or nofollow or js or tele
+
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if (link != url and is_valid(link))]
@@ -57,24 +69,21 @@ def extract_next_links(url, resp):
         robot_tag = soup.find("meta", attrs={"name": "robots"})
         if robot_tag:
             content = robot_tag.get('content')
-            if 'nofollow' in content or 'noindex' in content:
+            if 'nofollow' in content:
+                if al.getWords(soup) > 0:
+                    logger.info(url) # log urls that arent low information
                 return []
+            elif 'noindex' in content:
+                return []
+
         if al.getWords(soup) > 0:
             logger.info(url) # log urls that arent low information
-        
-        def ignore(link_elem):
-            link = link_elem['href']
-            fragment = re.match(r"^#",link)
-            js = re.match(r"^javascript:",link)
-            tele = re.match(r"^tel:",link)
-            nofollow = link_elem.has_attr('rel') and 'nofollow' in link_elem['rel']
-            return fragment or nofollow or js or tele
         
         for link_elem in soup.find_all('a',href=True):
             link = link_elem['href']
             if not ignore(link_elem):
-                if link[0] == '/':
-                    link = url.rstrip('/') + link
+                if not is_absolute(link):
+                    link = urldefrag(urljoin(url, link))[0]
                 links.append(link)
     return links
 
@@ -120,7 +129,7 @@ def is_valid(url):
             if re.search(path, parsed.path, re.IGNORECASE) is not None:
                 return False
         
-        paths = path.split('/')
+        paths = parsed.path.split('/')
         counts = {}
         for p in paths:
             if p not in counts:
@@ -130,7 +139,7 @@ def is_valid(url):
                 return False # invalid if any path is repeated more than twice to avoid repetitive path traps
 
 
-        # check for xxxx-xx-xx in queries to avoid calendar traps
+        # check for xxxx-xx-xx and xxxx-xx in queries to avoid calendar traps
         if re.search(r"\b\d{4}-\d{2}-\d{2}\b", parsed.query) is not None:
             return False
         if re.search(r"\b\d{4}-\d{2}\b", parsed.query) is not None:
@@ -141,11 +150,10 @@ def is_valid(url):
             return False
             
         # cache unique urls visited
-        url = f"{parsed.netloc}{parsed.path}?{parsed.query}"
         urlhash = normalized_hash(parsed)
         if urlhash in save:
             return False
-        save[urlhash] = url
+        save[urlhash] = f"{parsed.netloc}{parsed.path}?{parsed.query}"
         
         return True
 
