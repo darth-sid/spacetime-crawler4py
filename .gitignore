@@ -110,3 +110,7 @@ venv.bak/
 *.shelve
 
 test.py
+words
+words.shelve
+visited
+visited.shelve

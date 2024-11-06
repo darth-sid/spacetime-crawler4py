@@ -5,14 +5,18 @@ import shelve
 import analyze_links as al
 from utils import get_logger, get_urlhash
 
-save = shelve.open("unique_links.shelve")
+save = shelve.open("visited.shelve")
 logger = get_logger("Crawler", "CRAWLER")
+
+def is_html(content):
+    '''return true if string contains html'''
+    return bool(BeautifulSoup(html, 'html.parser').find())
 
 def normalized_hash(parsed_url):
     # queries to ignore
     ignore = {'utm_source','utm_medium','utm_campaign','utm_term','utm_content',
               'sessionid','sessid','sid','phpsessid','aspsessionid','jsessionid',
-              'date','time','calendar','schedule',
+              'date','time','calendar','schedule','p','page',
               'ref','referrer','src','sort','order','orderby','direction','view','display',
               'clid','click_id','aff_id','aid','affilliate_id','aff_sub', 'banner_id', 'campaign_id',
               }
@@ -38,10 +42,12 @@ def normalized_hash(parsed_url):
     return get_urlhash(url)
 
 def is_absolute(url):
+    '''return true if url is absolute and false if it is relative'''
     parsed = urlparse(url)
     return parsed.scheme and parsed.netloc
 
 def ignore(link_elem):
+    '''ignore fragment links, js links, tel links and nofollow links'''
     link = link_elem['href']
     fragment = re.match(r"^#",link)
     js = re.match(r"^javascript:",link)
@@ -50,8 +56,20 @@ def ignore(link_elem):
     return fragment or nofollow or js or tele
 
 def scraper(url, resp):
-    links = extract_next_links(url, resp)
-    return [link for link in links if (link != url and is_valid(link))]
+    if resp.status != 200 or not is_html(resp.raw_response.content):
+        return [] # ignore if broken link, bad request, or not html
+    logger.info(url)
+    soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+    if (robot_tag := soup.find("meta", attrs={"name": "robots"})):
+        content = robot_tag.get('content')
+        if 'nofollow' in content: # nofollow: log and read page but dont get links
+            al.getWords(soup)
+            return []
+        elif 'noindex' in content: # noindex: ignore
+            return []
+    al.getWords(soup)
+
+    return extract_next_links(url, resp)
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -64,27 +82,14 @@ def extract_next_links(url, resp):
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     links = []
-    if resp.status == 200:
-        soup = BeautifulSoup(resp.raw_response.content,'html.parser')
-        robot_tag = soup.find("meta", attrs={"name": "robots"})
-        if robot_tag:
-            content = robot_tag.get('content')
-            if 'nofollow' in content:
-                if al.getWords(soup) > 0:
-                    logger.info(url) # log urls that arent low information
-                return []
-            elif 'noindex' in content:
-                return []
+    soup = BeautifulSoup(resp.raw_response.content,'html.parser') 
 
-        if al.getWords(soup) > 0:
-            logger.info(url) # log urls that arent low information
-        
-        for link_elem in soup.find_all('a',href=True):
-            link = link_elem['href']
-            if not ignore(link_elem):
-                if not is_absolute(link):
-                    link = urldefrag(urljoin(url, link))[0]
-                links.append(link)
+    for link_elem in soup.find_all('a',href=True):
+        link = link_elem['href']
+        if not ignore(link_elem) and is_valid(link) and link != url:
+            if not is_absolute(link):
+                link = urldefrag(urljoin(url, link))[0]
+            links.append(link)
     return links
 
 def is_valid(url):
@@ -93,7 +98,7 @@ def is_valid(url):
     # There are already some conditions that return False.
     
     #ignore calendars traps, login pages, 
-    banned_paths = ['calendar'] # TODO
+    banned_paths = ['calendar','pdf'] # TODO
 
     try:
         parsed = urlparse(url)
@@ -102,11 +107,11 @@ def is_valid(url):
 
         valid = not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
-            + r"|png|tiff?|mid|mp2|mp3|mp4"
+            + r"|png|tiff?|mid|mp2|mp3|mp4|mpg"
             + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
-            + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
+            + r"|ps|eps|tex|ppt|pptx|ppsx|pps|doc|docx|xls|xlsx|names"
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
-            + r"|epub|dll|cnf|tgz|sha1"
+            + r"|epub|dll|cnf|tgz|sha1|scm|rkt|"
             + r"|thmx|mso|arff|rtf|jar|csv"
             + r"|ttf|otf|woff|woff2|eot|fon"
             + r"|img|pkg|exe|msi|sql|db|mdb|log|sqlite"
@@ -150,7 +155,7 @@ def is_valid(url):
             return False
             
         # cache unique urls visited
-        urlhash = normalized_hash(parsed)
+        urlhash = normalized_hash(parsed) #TODO: switch to simhash
         if urlhash in save:
             return False
         save[urlhash] = f"{parsed.netloc}{parsed.path}?{parsed.query}"

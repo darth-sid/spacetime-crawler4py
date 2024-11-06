@@ -30,7 +30,7 @@ stop_words = {
 def getWords(soup, limit = 50):
     text = soup.get_text(separator=" ", strip=True).lower()
     english_text = re.sub(r"[^a-z\s]", "", text)
-    words = text.split()
+    words = english_text.split()
 
     words = [word for word in words if len(word) > 2]
 
