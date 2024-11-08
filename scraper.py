@@ -10,7 +10,9 @@ logger = get_logger("Crawler", "CRAWLER")
 
 def is_html(content):
     '''return true if string contains html'''
-    return bool(BeautifulSoup(html, 'html.parser').find())
+    soup = BeautifulSoup(content, 'html.parser')
+    pdf_embed = bool(soup.find('embed', type=lambda a: a and a.endswith('pdf')))
+    return soup.find() and not pdf_embed
 
 def normalized_hash(parsed_url):
     # queries to ignore
@@ -31,10 +33,12 @@ def normalized_hash(parsed_url):
         path = path[:-9]
     path.rstrip('/')
 
+    re.sub(r"/page/([5-9][0-9]|[0-9]{3,})", "", path)
+
     query = parse_qs(parsed_url.query)
     filtered_query = dict(query)
     for param in query:
-        if param in ignore:
+        if param in ignore or re.search(r"\bfilter\b", param) or re.search(r"\bsort\b", param):
             filtered_query.pop(param, None)
     query = urlencode(filtered_query, doseq=True)
 
@@ -152,6 +156,10 @@ def is_valid(url):
         if re.search(r"\b\d{4}-\d{2}-\d{2}\b", parsed.path) is not None:
             return False
         if re.search(r"\b\d{4}-\d{2}\b", parsed.path) is not None:
+            return False
+
+        # ignore download links
+        if re.search(r"action=download", parsed.query) is not None:
             return False
             
         # cache unique urls visited
