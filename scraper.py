@@ -4,15 +4,24 @@ from bs4 import BeautifulSoup
 import shelve
 import analyze_links as al
 from utils import get_logger, get_urlhash
+import requests
 
 save = shelve.open("visited.shelve")
 logger = get_logger("Crawler", "CRAWLER")
 
 def is_html(content):
     '''return true if string contains html'''
+    response = requests.get(url, stream=True)
+    content_type = response.headers.get('Content-Type', '')
+    return content_type.startswith('text/html')
+
+    #pdf would result in empty html tree, so check content-type header instead
+    #pdf will have type application/pdf
+    '''
     soup = BeautifulSoup(content, 'html.parser')
     pdf_embed = bool(soup.find('embed', type=lambda a: a and a.endswith('pdf')))
     return soup.find() and not pdf_embed
+    '''
 
 def normalized_hash(parsed_url):
     # queries to ignore
