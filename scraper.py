@@ -13,20 +13,11 @@ def is_html(content):
     '''return true if string contains html'''
     #valid pdf should always start with %pdf
     #need to check if content is always properly formatted
-    if content.startswith('%PDF'):
+    if content.startswith(b'%PDF'):
         return False
 
     #these shld always be present in content
-    if '<html' in content.lower() or '<head' in content.lower() or '<body' in content.lower():
-        return True
-    
-    return False
-
-    '''
-    soup = BeautifulSoup(content, 'html.parser')
-    pdf_embed = bool(soup.find('embed', type=lambda a: a and a.endswith('pdf')))
-    return soup.find() and not pdf_embed
-    '''
+    return b'<html' in content.lower() or b'<head' in content.lower() or b'<body' in content.lower()
 
 def normalized_hash(parsed_url):
     # queries to ignore
