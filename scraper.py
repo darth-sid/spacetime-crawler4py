@@ -12,11 +12,8 @@ logger = get_logger("Crawler", "CRAWLER")
 def is_html(content):
     '''return true if string contains html'''
     #valid pdf should always start with %pdf
-    #need to check if content is always properly formatted
     if content.startswith(b'%PDF'):
         return False
-
-    #these shld always be present in content
     return b'<html' in content.lower() or b'<head' in content.lower() or b'<body' in content.lower()
 
 def normalized_hash(parsed_url):
@@ -38,12 +35,12 @@ def normalized_hash(parsed_url):
         path = path[:-9]
     path.rstrip('/')
 
-    re.sub(r"/page/([5-9][0-9]|[0-9]{3,})", "", path)
+    re.sub(r"/page/([0-9]{3,})", "", path) # ignore pages 100+
 
     query = parse_qs(parsed_url.query)
     filtered_query = dict(query)
     for param in query:
-        if param in ignore or re.search(r"\bfilter\b", param) or re.search(r"\bsort\b", param):
+        if param in ignore or re.search(r"\bfilter\b", param) or re.search(r"\bsort\b", param): # ignore typical bad params
             filtered_query.pop(param, None)
     query = urlencode(filtered_query, doseq=True)
 
@@ -56,13 +53,13 @@ def is_absolute(url):
     return parsed.scheme and parsed.netloc
 
 def ignore(link_elem):
-    '''ignore fragment links, js links, tel links and nofollow links'''
+    '''return true if link should be ignored'''
     link = link_elem['href']
-    fragment = re.match(r"^#",link)
-    js = re.match(r"^javascript:",link)
-    tele = re.match(r"^tel:",link)
-    nofollow = link_elem.has_attr('rel') and 'nofollow' in link_elem['rel']
-    return fragment or nofollow or js or tele
+    fragment = re.match(r"^#",link) # fragments
+    js = re.match(r"^javascript:",link) # js links
+    tel = re.match(r"^tel:",link) # tel links
+    nofollow = link_elem.has_attr('rel') and 'nofollow' in link_elem['rel'] # nofollow links
+    return fragment or nofollow or js or tel
 
 def scraper(url, resp):
     if resp.status != 200 or not is_html(resp.raw_response.content):
@@ -95,10 +92,11 @@ def extract_next_links(url, resp):
 
     for link_elem in soup.find_all('a',href=True):
         link = link_elem['href']
-        if not ignore(link_elem) and is_valid(link) and link != url:
+        if not ignore(link_elem):
             if not is_absolute(link):
-                link = urldefrag(urljoin(url, link))[0]
-            links.append(link)
+                link = urldefrag(urljoin(resp.raw_response.url, link))[0]
+            if is_valid(link) and link != url:
+                links.append(link)
     return links
 
 def is_valid(url):
@@ -107,7 +105,7 @@ def is_valid(url):
     # There are already some conditions that return False.
     
     #ignore calendars traps, login pages, 
-    banned_paths = ['calendar','pdf'] # TODO
+    banned_paths = ['calendar','pdf']
 
     try:
         parsed = urlparse(url)
@@ -140,7 +138,7 @@ def is_valid(url):
             return False
 
         for path in banned_paths:
-            if re.search(path, parsed.path, re.IGNORECASE) is not None:
+            if path in parsed.path:
                 return False
         
         paths = parsed.path.split('/')
@@ -164,11 +162,11 @@ def is_valid(url):
             return False
 
         # ignore download links
-        if re.search(r"action=download", parsed.query) is not None:
+        if "action=download" in parsed.query:
             return False
             
         # cache unique urls visited
-        urlhash = normalized_hash(parsed) #TODO: switch to simhash
+        urlhash = normalized_hash(parsed) #TODO: add simhash
         if urlhash in save:
             return False
         save[urlhash] = f"{parsed.netloc}{parsed.path}?{parsed.query}"
