@@ -4,9 +4,10 @@ from bs4 import BeautifulSoup
 import shelve
 import analyze_links as al
 from utils import get_logger, get_urlhash
+from simhash import compute_simhash, is_dupe
 
 
-save = shelve.open("visited.shelve")
+cache = shelve.open("cache.shelve")
 logger = get_logger("Crawler", "CRAWLER")
 
 def is_html(content):
@@ -73,6 +74,15 @@ def scraper(url, resp):
             return []
         elif 'noindex' in content: # noindex: ignore
             return []
+        
+    # cache unique urls visited
+    urlhash = normalized_hash(urlparse(url))
+    simhash = compute_simhash(soup)
+    for u in cache:
+        if urlhash == u or is_dupe(simhash, cache[u]):
+            return [] # ignore near duplicates
+    cache[urlhash] = simhash
+
     al.getWords(soup)
 
     return extract_next_links(url, resp)
@@ -165,11 +175,7 @@ def is_valid(url):
         if "action=download" in parsed.query:
             return False
             
-        # cache unique urls visited
-        urlhash = normalized_hash(parsed) #TODO: add simhash
-        if urlhash in save:
-            return False
-        save[urlhash] = f"{parsed.netloc}{parsed.path}?{parsed.query}"
+
         
         return True
 
