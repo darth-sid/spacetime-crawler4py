@@ -30,9 +30,9 @@ class Frontier(object):
                 f"Found save file {self.config.save_file}, deleting it.")
             os.remove(self.config.save_file)
 
-        if os.path.exists('visited.shelve'):
-            self.logger.info("Deleted visited file")
-            os.remove('visited.shelve')
+        if restart and os.path.exists('cache.shelve'):
+            self.logger.info("Deleted cache file")
+            os.remove('cache.shelve')
 
         # Load existing save file, or create one if it does not exist.
         self.save = shelve.open(self.config.save_file)
@@ -57,7 +57,8 @@ class Frontier(object):
                 if domain in self.domain_list.keys():
                     self.domain_list[domain].append(url)
                 else:
-                    self.domain_list[domain] = {url}
+                    self.domain_list[domain] = list()
+                    self.domain_list[domain].append(url)
                     self.active_domains.append(domain)
 
                     tbd_count += 1
