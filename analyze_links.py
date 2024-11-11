@@ -2,12 +2,7 @@ from bs4 import BeautifulSoup
 import shelve
 import os, re
 
-file_exists = os.path.exists("words.shelve")
 
-word_store = shelve.open("words.shelve")
-
-if not file_exists:
-    word_store['*']=0
 
 
 stop_words = {
@@ -27,7 +22,13 @@ stop_words = {
     "yourselves"
 }
 
-def getWords(soup, limit = 50):
+def getWords(soup, lock, url, limit = 50):
+    file_exists = os.path.exists("words.shelve")
+    with lock:
+        with shelve.open("words.shelve") as word_store:
+            if not file_exists:
+                word_store['*']=(0,None)
+
     text = soup.get_text(separator=" ", strip=True).lower()
     english_text = re.sub(r"[^a-z\s]", "", text)
     words = english_text.split()
@@ -38,16 +39,22 @@ def getWords(soup, limit = 50):
     num_words = len(words)
     if num_words < limit:
         return 0
-
+    
+    counts = {}
     for word in words:
         if word in stop_words:
             continue
-        if word in word_store:
-            word_store[word] += 1
-        else:
-            word_store[word] = 1
-
-    if num_words > word_store['*']:
-        word_store['*'] = num_words
+        if word not in counts:
+            counts[word] = 0
+        counts[word] += 1
+    
+    with lock:
+        with shelve.open("words.shelve") as word_store:
+            for word in counts:
+                if word not in word_store:
+                    word_store[word] = 0
+                word_store[word] += counts[word]
+            if num_words > word_store['*'][0]:
+                word_store['*'] = (num_words, url)
 
     return num_words

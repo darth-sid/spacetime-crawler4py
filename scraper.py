@@ -6,8 +6,6 @@ import analyze_links as al
 from utils import get_logger, get_urlhash
 from simhash import compute_simhash, is_dupe
 
-
-cache = shelve.open("cache.shelve")
 logger = get_logger("Crawler", "CRAWLER")
 
 def is_html(content):
@@ -18,6 +16,7 @@ def is_html(content):
     return b'<html' in content.lower() or b'<head' in content.lower() or b'<body' in content.lower()
 
 def normalized_hash(parsed_url):
+
     # queries to ignore
     ignore = {'utm_source','utm_medium','utm_campaign','utm_term','utm_content',
               'sessionid','sessid','sid','phpsessid','aspsessionid','jsessionid',
@@ -34,7 +33,7 @@ def normalized_hash(parsed_url):
         path = path[:-10]
     elif path.endswith("index.htm"):
         path = path[:-9]
-    path.rstrip('/')
+    path = path.rstrip('/')
 
     re.sub(r"/page/([0-9]{3,})", "", path) # ignore pages 100+
 
@@ -44,7 +43,7 @@ def normalized_hash(parsed_url):
         if param in ignore or re.search(r"\bfilter\b", param) or re.search(r"\bsort\b", param): # ignore typical bad params
             filtered_query.pop(param, None)
     query = urlencode(filtered_query, doseq=True)
-
+    
     url = urlunparse(('',netloc,path,'',query,''))
     return get_urlhash(url)
 
@@ -62,7 +61,7 @@ def ignore(link_elem):
     nofollow = link_elem.has_attr('rel') and 'nofollow' in link_elem['rel'] # nofollow links
     return fragment or nofollow or js or tel
 
-def scraper(url, resp):
+def scraper(url, resp, lock):
     if resp.status != 200 or not is_html(resp.raw_response.content):
         return [] # ignore if broken link, bad request, or not html
     logger.info(url)
@@ -70,7 +69,7 @@ def scraper(url, resp):
     if (robot_tag := soup.find("meta", attrs={"name": "robots"})):
         content = robot_tag.get('content')
         if 'nofollow' in content: # nofollow: log and read page but dont get links
-            al.getWords(soup)
+            al.getWords(soup, lock, url)
             return []
         elif 'noindex' in content: # noindex: ignore
             return []
@@ -78,12 +77,14 @@ def scraper(url, resp):
     # cache unique urls visited
     urlhash = normalized_hash(urlparse(url))
     simhash = compute_simhash(soup)
-    for u in cache:
-        if cache[u] is not None and (urlhash == u  or is_dupe(simhash, cache[u])):
-            return [] # ignore near duplicates
-    cache[urlhash] = simhash
+    with lock:
+        with shelve.open("cache.shelve") as cache:
+            for u in cache:
+                if cache[u][1] is not None and (urlhash == u  or is_dupe(simhash, cache[u][1])):
+                    return [] # ignore near duplicates
+            cache[urlhash] = (url, simhash)
 
-    al.getWords(soup)
+    al.getWords(soup, lock, url)
 
     return extract_next_links(url, resp)
 
@@ -105,11 +106,11 @@ def extract_next_links(url, resp):
         if not ignore(link_elem):
             if not is_absolute(link):
                 link = urldefrag(urljoin(resp.raw_response.url, link))[0]
-            if is_valid(link) and link != url:
+            if link != url:
                 links.append(link)
     return links
 
-def is_valid(url):
+def is_valid(url, lock, ignore_cache=False):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
@@ -132,7 +133,7 @@ def is_valid(url):
             + r"|thmx|mso|arff|rtf|jar|csv"
             + r"|ttf|otf|woff|woff2|eot|fon"
             + r"|img|pkg|exe|msi|sql|db|mdb|log|sqlite"
-            + r"|cpp|py|pix|bib|war|ini|o|a|lib|obj|ini|config"
+            + r"|cpp|cc|h|py|pix|bib|war|ini|o|a|lib|obj|ini|config"
             + r"|raw|ods|key|odp|ods|numbers|bat|sh|bak|swp"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz|z|xz|lz|tgz|tbz|apk|ipa)$", parsed.path.lower())
         if not valid:
@@ -174,12 +175,16 @@ def is_valid(url):
         # ignore download links
         if "action=download" in parsed.query:
             return False
-            
+        
+        if ignore_cache:
+            return True
         # cache unique urls visited
         urlhash = normalized_hash(urlparse(url))
-        if urlhash in cache:
-            return False
-        cache[urlhash] = None
+        with lock:
+            with shelve.open("cache.shelve") as cache:
+                if urlhash in cache:
+                    return False
+                cache[urlhash] = (url, None)
         
         return True
 

@@ -18,6 +18,7 @@ class Worker(Thread):
         self.logger = get_logger(f"Worker-{worker_id}", "Worker")
         self.config = config
         self.frontier = frontier
+        self.lock = frontier.lock
         self.current_domain = self.frontier.get_domain()
         self.frontier.active_workers[self.id] = True
         # basic check for requests in scraper
@@ -45,16 +46,11 @@ class Worker(Thread):
                 continue
             parsed_url = urlparse(tbd_url)
             domain = parsed_url.netloc
-            """if domain in self.frontier.domain_list.keys():
-                self.logger.info("Already visited")
-            else:
-                self.logger.info(f"Visited {domain} for the first time")
-                self.frontier.domain_list[domain] = 0"""
             resp = download(tbd_url, self.config, self.logger)
             self.logger.info(
                 f"Downloaded {tbd_url}, status <{resp.status}>, "
                 f"using cache {self.config.cache_server}.")
-            scraped_urls = scraper.scraper(tbd_url, resp)
+            scraped_urls = scraper.scraper(tbd_url, resp, self.lock)
             for scraped_url in scraped_urls:
                 self.frontier.add_url(scraped_url)
             self.frontier.mark_url_complete(tbd_url)

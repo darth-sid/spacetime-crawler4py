@@ -18,6 +18,7 @@ class Frontier(object):
         self.active_domains = list()
         self.domain_list = {}
         self.active_workers = {}
+        self.lock = RLock()
 
         if not os.path.exists(self.config.save_file) and not restart:
             # Save file does not exist, but request to load save.
@@ -33,13 +34,15 @@ class Frontier(object):
         if restart and os.path.exists('cache.shelve'):
             self.logger.info("Deleted cache file")
             os.remove('cache.shelve')
-            shelve.open('cache.shelve')
+
+        if restart and os.path.exists('words.shelve'):
+            self.logger.info("Deleted words")
+            os.remove('words.shelve')
 
         # Load existing save file, or create one if it does not exist.
         self.save = shelve.open(self.config.save_file)
         if restart:
             for url in self.config.seed_urls:
-                assert(is_valid(url))
                 self.add_url(url)
         else:
             # Set the frontier state with contents of save file.
@@ -53,7 +56,7 @@ class Frontier(object):
         total_count = len(self.save)
         tbd_count = 0
         for url, completed in self.save.values():
-            if not completed and is_valid(url):
+            if not completed and is_valid(url, self.lock, ignore_cache=True):
                 parsed_url = urlparse(url)
                 domain = parsed_url.netloc
                 if domain in self.domain_list.keys():
@@ -88,6 +91,8 @@ class Frontier(object):
             return None
 
     def add_url(self, url):
+        if not is_valid(url, self.lock):
+            return
         url = normalize(url)
         urlhash = get_urlhash(url)
         if urlhash not in self.save:
