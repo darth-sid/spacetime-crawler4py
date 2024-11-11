@@ -79,7 +79,7 @@ def scraper(url, resp):
     urlhash = normalized_hash(urlparse(url))
     simhash = compute_simhash(soup)
     for u in cache:
-        if urlhash == u or is_dupe(simhash, cache[u]):
+        if cache[u] is not None and (urlhash == u  or is_dupe(simhash, cache[u])):
             return [] # ignore near duplicates
     cache[urlhash] = simhash
 
@@ -175,7 +175,11 @@ def is_valid(url):
         if "action=download" in parsed.query:
             return False
             
-
+        # cache unique urls visited
+        urlhash = normalized_hash(urlparse(url))
+        if urlhash in cache:
+            return False
+        cache[urlhash] = None
         
         return True
 

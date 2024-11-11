@@ -33,11 +33,13 @@ class Frontier(object):
         if restart and os.path.exists('cache.shelve'):
             self.logger.info("Deleted cache file")
             os.remove('cache.shelve')
+            shelve.open('cache.shelve')
 
         # Load existing save file, or create one if it does not exist.
         self.save = shelve.open(self.config.save_file)
         if restart:
             for url in self.config.seed_urls:
+                assert(is_valid(url))
                 self.add_url(url)
         else:
             # Set the frontier state with contents of save file.
@@ -61,7 +63,7 @@ class Frontier(object):
                     self.domain_list[domain].append(url)
                     self.active_domains.append(domain)
 
-                    tbd_count += 1
+                tbd_count += 1
         self.logger.info(
             f"Found {tbd_count} urls to be downloaded from {total_count} "
             f"total urls discovered.")
