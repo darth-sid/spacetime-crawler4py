@@ -62,18 +62,17 @@ def ignore(link_elem):
     return fragment or nofollow or js or tel
 
 def scraper(url, resp, lock):
+    nofollow = False
     if resp.status != 200 or not is_html(resp.raw_response.content):
         return [] # ignore if broken link, bad request, or not html
-    logger.info(url)
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
     if (robot_tag := soup.find("meta", attrs={"name": "robots"})):
         content = robot_tag.get('content')
-        if 'nofollow' in content: # nofollow: log and read page but dont get links
-            al.getWords(soup, lock, url)
+        nofollow = ('nofollow' in content)
+        if 'noindex' in content: # noindex: ignore
             return []
-        elif 'noindex' in content: # noindex: ignore
-            return []
-        
+
+    logger.info(url)
     # cache unique urls visited
     urlhash = normalized_hash(urlparse(url))
     simhash = compute_simhash(soup)
@@ -86,6 +85,8 @@ def scraper(url, resp, lock):
 
     al.getWords(soup, lock, url)
 
+    if nofollow:
+        return []
     return extract_next_links(url, resp)
 
 def extract_next_links(url, resp):
@@ -116,7 +117,7 @@ def is_valid(url, lock, ignore_cache=False):
     # There are already some conditions that return False.
     
     #ignore calendars traps, login pages, 
-    banned_paths = ['calendar','pdf']
+    banned_paths = ['calendar','pdf', 'pix']
 
     try:
         parsed = urlparse(url)
@@ -130,10 +131,10 @@ def is_valid(url, lock, ignore_cache=False):
             + r"|ps|eps|tex|ppt|pptx|ppsx|pps|doc|docx|xls|xlsx|names"
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1|scm|rkt|"
-            + r"|thmx|mso|arff|rtf|jar|csv"
+            + r"|thmx|mso|arff|rtf|jar|csv|ff"
             + r"|ttf|otf|woff|woff2|eot|fon"
             + r"|img|pkg|exe|msi|sql|db|mdb|log|sqlite"
-            + r"|cpp|cc|h|py|pix|bib|war|ini|o|a|lib|obj|ini|config"
+            + r"|cpp|cc|c|h|py|pix|bib|war|ini|o|a|lib|obj|ini|config"
             + r"|raw|ods|key|odp|ods|numbers|bat|sh|bak|swp"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz|z|xz|lz|tgz|tbz|apk|ipa)$", parsed.path.lower())
         if not valid:
@@ -148,11 +149,12 @@ def is_valid(url, lock, ignore_cache=False):
         if not valid_domain:
             return False
 
-        for path in banned_paths:
-            if path in parsed.path:
-                return False
-        
         paths = parsed.path.split('/')
+
+        for path in banned_paths:
+            if path in paths:
+                return False
+
         counts = {}
         for p in paths:
             if p not in counts:
